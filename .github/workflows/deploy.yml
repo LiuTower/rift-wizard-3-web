@@ -6,17 +6,22 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write # 推送 gh-pages 分支
+  pages: write # 触发 Pages 构建
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
+# 为什么不用 actions/deploy-pages：
+# 该 action 的 timeout 有 600000ms 硬上限，而本仓库所在的 Pages 队列实测
+# 需要约 9.5 分钟才能完成构建，必然踩线超时（run 31096782830、31100818408
+# 均因此失败）。这里改为推送 gh-pages 分支并显式请求构建，然后立刻结束
+# workflow —— Pages 在后台自己慢慢构建，不占用 Actions 时间也不受其超时约束。
+
 jobs:
-  build:
-    name: 构建
+  deploy:
+    name: 构建并发布
     runs-on: ubuntu-latest
     steps:
       - name: 拉取代码
@@ -40,27 +45,30 @@ jobs:
       - name: 构建
         run: npm run build
 
-      - name: 配置 Pages
-        uses: actions/configure-pages@v5
+      - name: 推送产物到 gh-pages 分支
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          touch dist/.nojekyll # 关闭 Jekyll 处理
+          cd dist
+          git init -q -b gh-pages
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -q -m "部署 ${SHA}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" gh-pages
 
-      - name: 上传产物
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    name: 部署
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: 发布到 Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-        with:
-          # Pages 后端排队常年在 10 分钟上下，默认 600000ms 会踩线超时
-          # （实测最小仓库首次构建耗时 9.5 分钟），放宽到 30 分钟
-          timeout: 1800000
-          error_count: 20
+      - name: 请求 Pages 构建
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -sS -X POST --fail-with-body \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/pages/builds"
+          echo
+          echo "已请求构建。Pages 后台约需 10 分钟，完成后见 https://liutower.github.io/rift-wizard-3-web/"
