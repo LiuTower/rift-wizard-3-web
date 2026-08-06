@@ -12,6 +12,8 @@
 **<https://liutower.github.io/rift-wizard-3-web/>** —— 无需安装，浏览器打开即玩。
 
 每次推送到 `main` 由 GitHub Actions 自动构建部署；类型检查或测试不通过则不会上线。
+Actions 约半分钟跑完并把产物推到 `gh-pages` 分支，之后 Pages 后台还要约十分钟
+才会真正生效——改动没立刻出现是正常的，等等再刷新。
 
 ## 运行
 
