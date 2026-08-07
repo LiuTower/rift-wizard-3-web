@@ -56,6 +56,16 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
     audio.resume()
     if (ev.key === 'Control') { g.fx.skip(); return }
 
+    // A focused text field or dropdown owns the keyboard. Without this, typing
+    // "c" into the spell search hits PANEL_KEYS['C'] and closes the very panel
+    // being searched. Escape blurs first, so a second Escape still exits.
+    const focus = ev.target as HTMLElement | null
+    const tag = focus?.tagName
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+      if (ev.key === 'Escape') { focus?.blur(); ev.preventDefault() }
+      return
+    }
+
     const upper = ev.key.toUpperCase()
 
     // menu overlays: full keyboard control, no mouse required

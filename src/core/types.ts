@@ -46,10 +46,14 @@ export type Tag =
   // special tags
   | 'word' | 'orb' | 'dragon' | 'translocation' | 'metallic' | 'eye' | 'chaos' | 'blood'
 
-export const TAGS: readonly Tag[] = [
-  'sorcery', 'enchantment', 'conjuration',
-  'fire', 'lightning', 'ice', 'nature', 'arcane', 'dark', 'holy',
-  'word', 'orb', 'dragon', 'translocation', 'metallic', 'eye', 'chaos', 'blood',
+/**
+ * Tags grouped the way the spell filter offers them, and the single source of
+ * tag order for anything that enumerates them.
+ */
+export const TAG_GROUPS: readonly { label: string; tags: readonly Tag[] }[] = [
+  { label: '施法风格', tags: ['sorcery', 'enchantment', 'conjuration'] },
+  { label: '元素', tags: ['fire', 'lightning', 'ice', 'nature', 'arcane', 'dark', 'holy'] },
+  { label: '特殊', tags: ['word', 'orb', 'dragon', 'translocation', 'metallic', 'eye', 'chaos', 'blood'] },
 ]
 
 export const TAG_COLORS: Record<Tag, string> = {

@@ -3,13 +3,15 @@ import { getArtifacts, getConsumable, getSpellDefs, getUnitDef, contentCounts } 
 import { canCraft, craftArtifact, recipeText } from '../core/crafting'
 import { REWARD_NAMES } from '../core/realm'
 import { TUTORIAL_STEP_COUNT } from '../core/tutorial'
-import { COMPONENTS, COMPONENT_IDS, DAMAGE_NAMES, SLOT_NAMES, TAG_COLORS, TAG_NAMES, type DamageType, type Tag } from '../core/types'
+import { COMPONENTS, COMPONENT_IDS, DAMAGE_NAMES, SLOT_NAMES, TAG_COLORS, TAG_GROUPS, TAG_NAMES, type DamageType, type Tag } from '../core/types'
 import { SpellInst } from '../core/spell'
 import { clear, el, spriteImg } from './dom'
 import { hideTooltip } from './panels'
 import { audio } from '../audio'
 
 let spellFilter = ''
+/** Tag the spell list is narrowed to, '' for no narrowing. */
+let spellTagFilter: Tag | '' = ''
 let spellTab: 'all' | 'known' | 'affordable' = 'all'
 let craftTab: 'affordable' | 'all' | 'worn' = 'affordable'
 
@@ -46,6 +48,44 @@ function renderCharSheet(g: Game, root: HTMLElement): void {
     '点击法术即可学习，点击升级项即可购买（每个法术两项）。按 ESC 关闭。',
   )
 
+  // The tag dropdown comes first, both visually and in the filter chain: with 71
+  // spells, "show me the lightning ones" is the question players actually ask.
+  const tags = el('div', 'tabs')
+  const all = getSpellDefs()
+  const picker = el('select', 'filter-input')
+  picker.title = '按特性筛选法术'
+  const anyOpt = el('option', undefined, `全部特性（${all.length}）`)
+  anyOpt.value = ''
+  picker.append(anyOpt)
+  for (const group of TAG_GROUPS) {
+    const og = el('optgroup')
+    og.label = group.label
+    for (const t of group.tags) {
+      const n = all.filter(d => d.tags.includes(t)).length
+      if (!n) continue
+      const o = el('option', undefined, `${TAG_NAMES[t]}（${n}）`)
+      o.value = t
+      og.append(o)
+    }
+    if (og.children.length) picker.append(og)
+  }
+  picker.value = spellTagFilter
+  picker.onchange = () => {
+    spellTagFilter = picker.value as Tag | ''
+    // Picking a tag outranks the tab: someone hunting lightning spells means all
+    // of them, not just the ones the tab happened to be showing.
+    if (spellTagFilter) spellTab = 'all'
+    renderOverlay(g)
+  }
+  tags.append(el('span', 'tab-label', '特性'), picker)
+
+  const search = el('input', 'filter-input')
+  search.value = spellFilter
+  search.placeholder = '按名称或标签筛选'
+  search.oninput = () => { spellFilter = search.value.toLowerCase(); renderOverlay(g); search.focus() }
+  tags.append(search)
+  body.append(tags)
+
   const tabs = el('div', 'tabs')
   const mk = (id: typeof spellTab, label: string) => {
     const t = el('div', `tab${spellTab === id ? ' on' : ''}`, label)
@@ -55,21 +95,19 @@ function renderCharSheet(g: Game, root: HTMLElement): void {
   mk('all', '全部法术')
   mk('known', '我的法术书')
   mk('affordable', '买得起的')
-  const search = el('input')
-  search.value = spellFilter
-  search.placeholder = '按名称或标签筛选'
-  search.style.cssText = 'background:#07070a;border:1px solid #3a3a46;color:#c8c8d8;padding:2px 6px;border-radius:4px;font:inherit;margin-left:auto'
-  search.oninput = () => { spellFilter = search.value.toLowerCase(); renderOverlay(g); search.focus() }
-  tabs.append(search)
   body.append(tabs)
 
   const grid = el('div', 'grid-cards')
   const known = new Map(g.player.spells.map(s => [s.id, s]))
-  const defs = getSpellDefs().filter(d => {
+  const defs = all.filter(d => {
+    if (spellTagFilter && !d.tags.includes(spellTagFilter)) return false
     if (spellTab === 'known' && !known.has(d.id)) return false
     if (spellTab === 'affordable' && (known.has(d.id) || d.level > g.run.sp)) return false
     if (!spellFilter) return true
-    return d.name.toLowerCase().includes(spellFilter) || d.tags.some(t => t.includes(spellFilter))
+    // Match the Chinese tag names too: the placeholder promises tag search, and
+    // the raw ids ("lightning") are never shown to the player.
+    return d.name.toLowerCase().includes(spellFilter)
+      || d.tags.some(t => t.includes(spellFilter) || TAG_NAMES[t].includes(spellFilter))
   })
 
   for (const def of defs) {
