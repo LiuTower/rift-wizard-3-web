@@ -1,6 +1,6 @@
 import type { Game } from '../core/game'
 import type { BoardRenderer } from '../render/board'
-import { renderOverlay, MENU_MODES } from './overlays'
+import { renderOverlay, MENU_MODES, menuArmed } from './overlays'
 import { hideTooltip } from './panels'
 import { audio } from '../audio'
 import { cheb } from '../core/geom'
@@ -63,9 +63,21 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
       const mv = MOVE_KEYS[ev.code] ?? MOVE_KEYS[ev.key]
       if (mv && mv[1] !== 0) { moveSel(mv[1]); ev.preventDefault(); return }
       if (ev.key === 'Tab') { moveSel(ev.shiftKey ? -1 : 1); ev.preventDefault(); return }
-      if (ev.key === 'Enter' || ev.key === ' ') { activateSel(); ev.preventDefault(); return }
+      // Confirm keys wait for the menu to arm: an Enter still in flight from the
+      // fight that just killed you must not skip the death summary. Swallowed
+      // silently, since an error sound would read as "your input failed" when the
+      // key is merely early. Arrow navigation above is never gated.
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        if (menuArmed()) activateSel()
+        ev.preventDefault()
+        return
+      }
       const hot = menuItems().find(i => i.dataset.hotkey === upper)
-      if (hot) { audio.play('ui_open'); hot.click(); ev.preventDefault(); return }
+      if (hot) {
+        if (menuArmed()) { audio.play('ui_open'); hot.click() }
+        ev.preventDefault()
+        return
+      }
       // the pause menu still answers the in-game panel keys; on title/end screens
       // there is no run to inspect, so they stay inert.
       if (g.mode === 'menu' && PANEL_KEYS[upper]) {

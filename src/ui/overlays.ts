@@ -497,8 +497,34 @@ export const MENU_MODES: Record<string, true> = {
   title: true, dead: true, win: true, menu: true, tutorialEnd: true,
 }
 
+/**
+ * How long a consequential menu ignores confirm keys. Dying mid-combo used to
+ * feed the keystrokes still in flight into the death screen's first entry
+ * ("play again"), erasing the run summary before the player ever read it.
+ */
+const MENU_ARM_MS = 400
+
+/**
+ * Only involuntary screens need the delay. The player opens the title and pause
+ * menus deliberately, so there is no stray keystroke to guard against and a
+ * cooldown would just make them feel sluggish.
+ */
+const ARM_DELAY_MODES: Record<string, true> = { dead: true, win: true, tutorialEnd: true }
+
+let lastRenderedMode = ''
+let menuShownAt = 0
+
+/** True once the current menu has been up long enough to trust a confirm key. */
+export function menuArmed(): boolean {
+  return !ARM_DELAY_MODES[lastRenderedMode] || performance.now() - menuShownAt >= MENU_ARM_MS
+}
+
 /** Draw whichever full-screen panel the current mode calls for. */
 export function renderOverlay(g: Game): void {
+  // Restart the arm clock on mode changes only. A plain re-render (mute toggle,
+  // reroll, stat refresh) must not push the deadline back, or the menu would
+  // never arm at all.
+  if (g.mode !== lastRenderedMode) { lastRenderedMode = g.mode; menuShownAt = performance.now() }
   const root = document.getElementById('overlay')
   if (!root) return
   hideTooltip()

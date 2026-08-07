@@ -688,6 +688,9 @@ const REF_NAMES: Record<string, string> = {
 
 /** Wipe the run state and drop the player into step one. */
 export function startTutorial(g: Game): void {
+  // The tutorial is a sandbox, not progress: it must never overwrite the real
+  // save, so revoke storage permission before its throwaway run is rolled.
+  g.persist = false
   g.newRun('tutorial')
   const t = new Tutorial(g)
   g.tutorial = t

@@ -79,7 +79,11 @@ function boot(): void {
   initOverlays({
     onStart: seed => {
       game.tutorial = undefined
+      game.persist = true
       game.newRun(seed)
+      // Seed storage from the call site instead of leaning on `enterRealm`'s
+      // internal write, so a player who closes the tab immediately still has a run.
+      game.saveRun()
       game.mode = 'play'
       resize()
       renderOverlay(game)
@@ -96,7 +100,9 @@ function boot(): void {
     canContinue: hasSave,
   })
 
-  // Boot into a live run so the board renders behind the title screen.
+  // Boot into a live run so the board renders behind the title screen. It stays
+  // unpersisted on purpose: this run is scenery, and writing it would erase the
+  // player's actual save on every page load.
   game.newRun()
   game.mode = 'title'
   resize()

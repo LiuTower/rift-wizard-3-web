@@ -108,6 +108,9 @@ describe('animation timing', () => {
   it('keeps the queue bounded while the player keeps acting', () => {
     const g = combatGame()
     for (let n = 0; n < 40; n++) {
+      // Stop at death: past that point the death screen owns the input, and
+      // counting turns across a restart is how a "-3 turns" reading happens.
+      if (!g.player.alive || g.mode === 'dead') break
       if (!attack(g) && !g.passTurn()) break
       render(g, 0.02)
     }

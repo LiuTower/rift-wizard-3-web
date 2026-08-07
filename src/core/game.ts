@@ -92,6 +92,14 @@ export class Game {
   onChange: () => void = () => {}
   /** set when the wizard dies or wins, for the summary screen */
   endMessage = ''
+  /**
+   * Storage gate for `saveRun`. Only a run the player actually owns may reach
+   * localStorage: the title screen boots a live run purely so the board has
+   * something to draw behind it, and the tutorial rolls its own throwaway run —
+   * both would otherwise stomp a real save on page load. `enterRealm` cannot
+   * tell those apart, so the permission lives with whoever started the run.
+   */
+  persist = false
   /** last tutorial step announced in the log, to avoid repeats */
   private lastTutorialStep = -1
   /** non-undefined only during the scripted tutorial */
@@ -744,6 +752,7 @@ export class Game {
   // ------------------------------------------------------------------ persist
 
   saveRun(): void {
+    if (!this.persist) return
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(serializeRun(this)))
     } catch { /* storage unavailable, run stays in memory */ }
@@ -754,7 +763,10 @@ export class Game {
       const raw = localStorage.getItem(SAVE_KEY)
       if (!raw) return false
       const blob = parseSave(JSON.parse(raw))
-      return blob ? deserializeRun(this, blob) : false
+      if (!blob || !deserializeRun(this, blob)) return false
+      // The restored run is the player's, so every realm from here on is saved.
+      this.persist = true
+      return true
     } catch {
       return false
     }
