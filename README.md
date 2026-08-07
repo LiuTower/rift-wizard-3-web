@@ -12,8 +12,14 @@
 **<https://liutower.github.io/rift-wizard-3-web/>** —— 无需安装，浏览器打开即玩。
 
 每次推送到 `main` 由 GitHub Actions 自动构建部署；类型检查或测试不通过则不会上线。
-Actions 约半分钟跑完并把产物推到 `gh-pages` 分支，之后 Pages 后台还要约十分钟
-才会真正生效——改动没立刻出现是正常的，等等再刷新。
+Actions 约半分钟跑完并把产物推到 `gh-pages` 分支，Pages 随即生效。
+
+`index.html` 带 10 分钟 CDN 缓存（`Cache-Control: max-age=600`），改动没立刻出现就
+硬刷新一次；JS 与 CSS 文件名带内容 hash，不受缓存影响。
+
+部署刻意不用 `actions/deploy-pages`：它的等待超时有 600000ms 硬上限，而本仓库首次
+启用 Pages 时后端排队约 9.5 分钟，必然踩线失败。现在的做法是推分支后显式请求构建、
+不在 Actions 里等待。
 
 ## 运行
 
@@ -202,3 +208,8 @@ src/
 移动无条件放行）；`move` 步缺少完成条件时"走一步就算过"（现在按是否站上目标格判定）。
 driver 自己也踩过一次坑——手写切比雪夫距离判断射程，而游戏用的是欧氏距离，于是改成直接
 问 `validTarget`，不复制公式。
+
+## 许可
+
+[MIT](LICENSE)。代码与美术均为原创，可自由使用；复刻的是《Rift Wizard 3》的**系统**，
+不含原作任何素材，原作版权归 Dylan White / Khoops / Jacob Martinez 所有。
