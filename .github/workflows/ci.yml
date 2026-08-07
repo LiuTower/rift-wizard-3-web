@@ -1,0 +1,42 @@
+name: CI
+
+# 部署 workflow 只在 push main 时跑，PR 阶段没有任何质量门。
+# 多人协作时坏代码会直接进 main，所以这里单独拦一道：
+# 只做检查，不碰 gh-pages，不触发部署。
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 类型检查与测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 测试
+        run: npm test
+
+      - name: 构建
+        run: npm run build
