@@ -97,8 +97,9 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
         return
       }
       if (PANEL_KEYS[upper]) {
-        const next = PANEL_KEYS[upper]
-        g.mode = g.mode === next ? 'play' : (next as typeof g.mode)
+        const next = (g.mode === PANEL_KEYS[upper] ? 'play' : PANEL_KEYS[upper]) as typeof g.mode
+        if (!g.canOpenPanel(next)) { audio.play('ui_error'); refresh(); ev.preventDefault(); return }
+        g.mode = next
         audio.play('ui_open')
         renderOverlay(g)
         refresh()
@@ -177,7 +178,9 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
     }
 
     if (PANEL_KEYS[upper]) {
-      g.mode = PANEL_KEYS[upper] as typeof g.mode
+      const next = PANEL_KEYS[upper] as typeof g.mode
+      if (!g.canOpenPanel(next)) { audio.play('ui_error'); refresh(); ev.preventDefault(); return }
+      g.mode = next
       audio.play('ui_open')
       renderOverlay(g)
       refresh()
@@ -207,6 +210,7 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
     if (g.hover && g.hover.x === t.x && g.hover.y === t.y) return
     g.hover = t
     if (g.mode === 'aim' && g.aim) { g.aim.x = t.x; g.aim.y = t.y }
+    g.examined(t.x, t.y)
     refresh()
   })
 

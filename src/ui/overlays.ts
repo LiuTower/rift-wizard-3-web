@@ -2,6 +2,7 @@ import type { Game } from '../core/game'
 import { getArtifacts, getConsumable, getSpellDefs, getUnitDef, contentCounts } from '../core/registry'
 import { canCraft, craftArtifact, recipeText } from '../core/crafting'
 import { REWARD_NAMES } from '../core/realm'
+import { TUTORIAL_STEP_COUNT } from '../core/tutorial'
 import { COMPONENTS, COMPONENT_IDS, DAMAGE_NAMES, SLOT_NAMES, TAG_COLORS, TAG_NAMES, type DamageType, type Tag } from '../core/types'
 import { SpellInst } from '../core/spell'
 import { clear, el, spriteImg } from './dom'
@@ -217,7 +218,7 @@ function renderCraft(g: Game, root: HTMLElement): void {
       const occupant = g.run.equipment[art.slot]
       if (occupant) card.append(line(`将替换 ${occupant.name}`, '#ffd84a'))
       card.onclick = () => {
-        if (craftArtifact(g, art)) { audio.play('levelup'); renderOverlay(g) }
+        if (g.craft(art.id)) { audio.play('levelup'); renderOverlay(g) }
         else audio.play('ui_error')
       }
     }
@@ -281,6 +282,7 @@ function renderHelp(g: Game, root: HTMLElement): void {
     ['跳过动画', '按住或轻按 Ctrl'],
     ['静音', 'M'],
     ['菜单 / 标题 / 结算界面', '↑↓ 或 W S 选择，回车 或 空格 确认，Tab 循环 —— 全程无需鼠标。结算界面按 R 直接重开一局'],
+    ['新手教学', `标题界面按 T —— ${TUTORIAL_STEP_COUNT} 步脚本关卡，跟着底部指引走完即可掌握全部机制`],
   ]
   body.append(el('h2', undefined, '操作'))
   for (const [k, v] of rows) {
@@ -314,10 +316,19 @@ function renderMenu(g: Game, root: HTMLElement): void {
   const items: [string, () => void][] = [
     ['继续游戏', () => { g.mode = 'play'; renderOverlay(g) }],
     ['玩法说明', () => { g.mode = 'help'; renderOverlay(g) }],
-    ['角色面板', () => { g.mode = 'charsheet'; renderOverlay(g) }],
-    ['锻造', () => { g.mode = 'craft'; renderOverlay(g) }],
+    ['角色面板', () => { if (g.canOpenPanel('charsheet')) { g.mode = 'charsheet'; renderOverlay(g) } }],
+    ['锻造', () => { if (g.canOpenPanel('craft')) { g.mode = 'craft'; renderOverlay(g) } }],
     [audio.muted ? '开启音效' : '静音', () => { audio.setMuted(!audio.muted); renderOverlay(g) }],
-    ['放弃本局并重新开始', () => { if (confirm('确定放弃这一局？')) { g.newRun(); g.mode = 'play'; renderOverlay(g) } }],
+    [g.tutorial ? '退出教学' : '放弃本局并重新开始', () => {
+      if (g.tutorial) {
+        if (!confirm('确定退出教学？')) return
+        g.tutorial = undefined
+        g.mode = 'title'
+        renderOverlay(g)
+        return
+      }
+      if (confirm('确定放弃这一局？')) { g.newRun(); g.mode = 'play'; renderOverlay(g) }
+    }],
   ]
   for (const [label, fn] of items) {
     const d = el('div', 'menu-item', label)
@@ -349,6 +360,13 @@ function renderTitle(g: Game, root: HTMLElement, onStart: (seed?: string) => voi
   newRun.dataset.hotkey = 'N'
   newRun.onclick = () => onStart()
   box.append(newRun)
+
+  const tut = el('div', 'menu-item', '> 新手教学    [T]')
+  tut.style.color = '#9ad0ff'
+  tut.dataset.hotkey = 'T'
+  tut.onclick = () => hooks.onTutorial()
+  box.append(tut)
+  box.append(line(`两层脚本关卡，${TUTORIAL_STEP_COUNT} 步走完全部机制。第一次玩建议从这里开始。`, '#5a5a66'))
 
   if (canContinue) {
     const cont = el('div', 'menu-item', '> 继续上次进度    [C]')
@@ -428,12 +446,46 @@ function renderEnd(g: Game, root: HTMLElement, won: boolean, onStart: (seed?: st
   root.append(box)
 }
 
+function renderTutorialEnd(g: Game, root: HTMLElement): void {
+  const box = el('div', 'center-box')
+  const title = el('h1', undefined, '教学完成')
+  title.style.color = '#ffd84a'
+  box.append(title)
+  box.append(line('你已经掌握了这个游戏的全部核心机制：', '#c8c8d8'))
+  box.append(el('div', undefined, ' '))
+  for (const s of [
+    '八方向移动、视线阻断、巫师不能近战',
+    '施法与瞄准、范围落点、充能与法力药剂',
+    '伤害类型与硬抗性、状态效果与持续伤害',
+    '死亡分裂、飞行与深渊、云雾地形',
+    '技能点、法术升级四选二、召唤物',
+    '刷怪门与增益单位的目标优先级',
+    '材料、锻造神器与装备加成',
+    '裂隙预览与传送门',
+  ]) box.append(line(`· ${s}`, '#8890a0'))
+  box.append(el('div', undefined, ' '))
+  box.append(line('真正的一局有二十层，敌人不会站着等你，而且死亡不可挽回。', '#ff9a9a'))
+  box.append(el('div', undefined, ' '))
+
+  const start = el('div', 'menu-item', '> 开始真正的一局    [回车]')
+  start.style.color = '#ffd84a'
+  start.dataset.hotkey = 'N'
+  start.onclick = () => { g.tutorial = undefined; hooks.onStart() }
+  box.append(start)
+  const back = el('div', 'menu-item', '> 返回标题界面    [T]')
+  back.dataset.hotkey = 'T'
+  back.onclick = () => { g.tutorial = undefined; g.mode = 'title'; renderOverlay(g) }
+  box.append(back)
+  root.append(box)
+}
+
 export interface OverlayHooks {
   onStart: (seed?: string) => void
+  onTutorial: () => void
   canContinue: () => boolean
 }
 
-let hooks: OverlayHooks = { onStart: () => {}, canContinue: () => false }
+let hooks: OverlayHooks = { onStart: () => {}, onTutorial: () => {}, canContinue: () => false }
 
 export function initOverlays(h: OverlayHooks): void { hooks = h }
 
@@ -441,7 +493,9 @@ export function initOverlays(h: OverlayHooks): void { hooks = h }
  * Modes whose overlay is a plain vertical list of `.menu-item`s, so the input
  * layer can drive them with the arrow keys instead of demanding a mouse.
  */
-export const MENU_MODES: Record<string, true> = { title: true, dead: true, win: true, menu: true }
+export const MENU_MODES: Record<string, true> = {
+  title: true, dead: true, win: true, menu: true, tutorialEnd: true,
+}
 
 /** Draw whichever full-screen panel the current mode calls for. */
 export function renderOverlay(g: Game): void {
@@ -462,6 +516,7 @@ export function renderOverlay(g: Game): void {
     case 'title': renderTitle(g, root, hooks.onStart, hooks.canContinue()); break
     case 'dead': renderEnd(g, root, false, hooks.onStart); break
     case 'win': renderEnd(g, root, true, hooks.onStart); break
+    case 'tutorialEnd': renderTutorialEnd(g, root); break
   }
   // Pre-select the first entry so Enter always has an obvious meaning. Selection
   // lives in the DOM, so a re-render naturally resets it to the top item.

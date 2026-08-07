@@ -13,10 +13,12 @@ import { addConsumable, takeConsumable, type InventoryEntry } from './items'
 import { applyBuff, dealDamage, healUnit, killUnit, removeBuff } from './combat'
 import { makeBuff } from './buffs'
 import { WIZARD_DEF } from '../content/wizard'
+import { craftArtifact, equipArtifact } from './crafting'
+import { enterStage, tutorialRevive, TUTORIAL_STEP_COUNT, type Tutorial, type TutorialAction } from './tutorial'
 
 export type GameMode =
   | 'title' | 'play' | 'aim' | 'charsheet' | 'craft'
-  | 'portal' | 'inventory' | 'help' | 'dead' | 'win' | 'menu'
+  | 'portal' | 'inventory' | 'help' | 'dead' | 'win' | 'menu' | 'tutorialEnd'
 
 export interface LogLine { text: string; color: string; turn: number }
 
@@ -90,6 +92,10 @@ export class Game {
   onChange: () => void = () => {}
   /** set when the wizard dies or wins, for the summary screen */
   endMessage = ''
+  /** last tutorial step announced in the log, to avoid repeats */
+  private lastTutorialStep = -1
+  /** non-undefined only during the scripted tutorial */
+  tutorial?: Tutorial
   /** true once the wizard has used the extra action Haste grants this turn */
   private extraActionSpent = false
   private listeners = new Map<string, ((payload: unknown) => void)[]>()
@@ -173,6 +179,14 @@ export class Game {
 
   /** Called by combat when the wizard's HP hits zero. */
   onPlayerDeath(): void {
+    // The tutorial must never end in a death screen: the lesson would be lost
+    // and the player would have to restart the whole script.
+    if (this.tutorial && !this.tutorial.done) {
+      this.player.dead = false
+      tutorialRevive(this)
+      this.onChange()
+      return
+    }
     this.mode = 'dead'
     this.endMessage = `巫师陨落于第 ${this.run.realmIndex} 领域。`
     clearSave()
@@ -207,6 +221,70 @@ export class Game {
   get enemies(): Unit[] { return this.level.units.filter(u => u.alive && u.team === 'enemy') }
 
   get cleared(): boolean { return this.enemies.length === 0 }
+
+  /**
+   * Tutorial gate. Outside the tutorial everything is permitted; inside, only
+   * the current step's action is, and a refusal is logged so the player learns
+   * why the click did nothing.
+   */
+  private tutorialAllows(a: TutorialAction): boolean {
+    const t = this.tutorial
+    if (!t || t.done || t.scripting) return true
+    if (t.allows(a)) return true
+    this.log(t.rejected, '#ffb03a')
+    this.onChange()
+    return false
+  }
+
+  /** Tell the tutorial an action landed, so it can advance. */
+  private tutorialDid(a: TutorialAction): void {
+    const t = this.tutorial
+    if (!t || t.done || t.scripting) return
+    t.notify(a)
+  }
+
+  /**
+   * Is the player allowed to open `mode` right now? The tutorial pins the player
+   * to the panel its current step needs; outside it, everything opens.
+   */
+  canOpenPanel(mode: GameMode): boolean {
+    const t = this.tutorial
+    if (!t || t.done) return true
+    if (!t.allowsPanel(mode)) {
+      this.log(t.rejected, '#ffb03a')
+      return false
+    }
+    // Only an explicit "open this panel" step counts as progress; the escape
+    // hatches and the panels a goal merely needs open do not.
+    if (t.current?.goal.kind === 'panel' && t.current.goal.ref === mode) {
+      t.notify({ kind: 'panel', ref: mode })
+    }
+    return true
+  }
+
+  /** The mouse moved onto a tile; the tutorial's examine step waits on this. */
+  examined(x: number, y: number): void {
+    const t = this.tutorial
+    if (!t || t.done || t.scripting) return
+    if (t.current?.goal.kind !== 'examine') return
+    const want = t.highlight
+    if (!want.some(p => p.x === x && p.y === y)) return
+    t.notify({ kind: 'examine', at: { x, y } })
+    this.onChange()
+  }
+
+  /** Forge an artifact by id. Single entry point so the tutorial can gate it. */
+  craft(artifactId: string): boolean {
+    const def = getArtifact(artifactId)
+    if (!def) return false
+    if (!this.tutorialAllows({ kind: 'craft', ref: artifactId })) return false
+    if (!craftArtifact(this, def)) return false
+    equipArtifact(this, def)
+    this.log(`熔铸并装备了 ${def.name}。`, '#ffd84a')
+    this.tutorialDid({ kind: 'craft', ref: artifactId })
+    this.onChange()
+    return true
+  }
 
   flowTo(target: Unit, flying: boolean): Int16Array {
     const key = `${target.uid}:${flying ? 1 : 0}`
@@ -277,11 +355,13 @@ export class Game {
     if (!def) return false
     if (this.player.spells.some(s => s.id === defId)) return false
     if (this.run.sp < def.level) return false
+    if (!this.tutorialAllows({ kind: 'learn', ref: defId })) return false
     this.run.sp -= def.level
     this.run.spSpent += def.level
     const inst = new SpellInst(def, this.player)
     this.player.spells.push(inst)
     this.log(`习得 ${def.name}。`, '#9ad0ff')
+    this.tutorialDid({ kind: 'learn', ref: defId })
     this.onChange()
     return true
   }
@@ -295,11 +375,13 @@ export class Game {
     if (!up) return false
     const cost = up.cost ?? s.def.level
     if (this.run.sp < cost) return false
+    if (!this.tutorialAllows({ kind: 'upgrade', ref: spellId, ref2: upgradeId })) return false
     this.run.sp -= cost
     this.run.spSpent += cost
     s.upgradesTaken.push(upgradeId)
     if (s.charges > s.maxCharges) s.charges = s.maxCharges
     this.log(`${s.name}：${up.name}。`, '#9ad0ff')
+    this.tutorialDid({ kind: 'upgrade', ref: spellId, ref2: upgradeId })
     this.onChange()
     return true
   }
@@ -316,6 +398,9 @@ export class Game {
   beginAim(idx: number): boolean {
     const s = this.player.spells[idx]
     if (!s || !this.canCast(idx)) return false
+    // Refuse at selection time, not after the player has aimed and clicked: the
+    // nudge is only useful before they commit to a target.
+    if (!this.tutorialAllows({ kind: 'cast', ref: s.id })) return false
     if (s.def.target === 'self') return this.castSpell(idx, this.player.x, this.player.y)
     this.aim = { kind: 'spell', spellIdx: idx, x: this.player.x, y: this.player.y }
     this.mode = 'aim'
@@ -370,6 +455,7 @@ export class Game {
     const s = this.player.spells[idx]
     if (!s || !this.canCast(idx)) return false
     if (!validTarget(s, this, x, y)) return false
+    if (!this.tutorialAllows({ kind: 'cast', ref: s.id, at: { x, y } })) return false
 
     this.aim = undefined
     this.mode = 'play'
@@ -394,6 +480,7 @@ export class Game {
       this.report.headline = `你正在引导 ${s.name}`
     }
 
+    this.tutorialDid({ kind: 'cast', ref: s.id, at: { x, y } })
     this.endPlayerTurn()
     return true
   }
@@ -432,12 +519,14 @@ export class Game {
     const def = getConsumable(id)
     if (!def) return false
     if (!this.run.inventory.some(e => e.id === id && e.count > 0)) return false
+    if (!this.tutorialAllows({ kind: 'consumable', ref: id })) return false
     this.aim = undefined
     if (this.mode === 'aim' || this.mode === 'inventory') this.mode = 'play'
     this.startReport(`你使用了 ${def.name}`, def.color)
     this.breakChannel()
     if (!def.use(this, x, y)) return false
     takeConsumable(this.run.inventory, id)
+    this.tutorialDid({ kind: 'consumable', ref: id })
     this.endPlayerTurn()
     return true
   }
@@ -448,6 +537,7 @@ export class Game {
     if (!this.level.passable(nx, ny, this.player.flying)) return false
     const other = this.level.unitAt(nx, ny)
     if (other && other.team !== 'player') return false
+    if (!this.tutorialAllows({ kind: 'move', at: { x: nx, y: ny } })) return false
     this.startReport('', '#c8c8d8')
     this.breakChannel()
     if (other) {
@@ -461,13 +551,16 @@ export class Game {
     this.level.invalidateLOS()
     for (const b of this.player.buffs.slice()) b.onMove?.(this.player, this, this.player.x - dx, this.player.y - dy)
     this.checkTileEffects(this.player)
+    this.tutorialDid({ kind: 'move', at: { x: this.player.x, y: this.player.y } })
     if (this.player.alive) this.endPlayerTurn()
     return true
   }
 
   passTurn(): boolean {
     if (this.channeling) return this.continueChannel()
+    if (!this.tutorialAllows({ kind: 'wait' })) return false
     this.startReport('你原地等待。', '#8890a0')
+    this.tutorialDid({ kind: 'wait' })
     this.endPlayerTurn()
     return true
   }
@@ -479,6 +572,15 @@ export class Game {
     if (!this.cleared) {
       this.log('敌人尚存，传送门不会开启。', '#ff9a9a')
       return false
+    }
+    if (!this.tutorialAllows({ kind: 'portal' })) return false
+
+    // The tutorial's second stage is hand-built, not a generated realm.
+    const t = this.tutorial
+    if (t) {
+      this.tutorialDid({ kind: 'portal' })
+      enterStage(this, t, 1)
+      return true
     }
     const gain = SP_PER_REALM(this.run.realm.difficulty)
     this.run.sp += gain
@@ -590,7 +692,9 @@ export class Game {
     this.stats.turns++
     this.flowCache.clear()
 
-    if (this.cleared && this.run.realmIndex >= 20 && this.mode === 'play') this.win()
+    if (this.cleared && this.run.realmIndex >= 20 && this.mode === 'play' && !this.tutorial) this.win()
+    // A step that waits on "all enemies dead" completes during the enemy phase.
+    if (this.tutorial && !this.tutorial.done) this.tutorial.check()
     this.onChange()
   }
 
@@ -659,7 +763,7 @@ function emptyStats(): RunStats {
   }
 }
 
-function emptyReport(): TurnReport {
+export function emptyReport(): TurnReport {
   return { headline: '', headlineColor: '#c8c8d8', damage: new Map(), kills: new Map(), taken: 0, notes: [] }
 }
 

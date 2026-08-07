@@ -1,10 +1,14 @@
 import './style.css'
 import { Game, hasSave } from './core/game'
 import { BoardRenderer } from './render/board'
-import { renderReport, renderSidebar } from './ui/panels'
+import { renderReport, renderSidebar, renderTutorialBanner } from './ui/panels'
 import { initOverlays, renderOverlay } from './ui/overlays'
 import { bindInput } from './ui/input'
+import { startTutorial } from './core/tutorial'
 import { audio } from './audio'
+
+/** Board space given to the tutorial banner; mirrors `#board-wrap.tut` padding. */
+const TUTORIAL_RESERVE = 160
 
 function boot(): void {
   const app = document.getElementById('app')
@@ -18,7 +22,9 @@ function boot(): void {
   wrap.id = 'board-wrap'
   const canvas = document.createElement('canvas')
   canvas.id = 'board'
-  wrap.append(canvas)
+  const banner = document.createElement('div')
+  banner.id = 'tutorial'
+  wrap.append(canvas, banner)
 
   const right = document.createElement('div')
   right.id = 'right'
@@ -33,18 +39,36 @@ function boot(): void {
   const game = new Game()
   const board = new BoardRenderer(canvas)
 
+  /** True while the board column is reserving space for the tutorial banner. */
+  let reserved = false
+
   const refresh = (): void => {
     renderSidebar(game, left, i => { game.beginAim(i); refresh() }, mode => {
-      game.mode = game.mode === mode ? 'play' : (mode as typeof game.mode)
+      const next = game.mode === mode ? 'play' : (mode as typeof game.mode)
+      if (!game.canOpenPanel(next)) { audio.play('ui_error'); renderReport(game, right); return }
+      game.mode = next
       audio.play('ui_open')
       renderOverlay(game)
       refresh()
     })
     renderReport(game, right)
+    renderTutorialBanner(game, banner)
+
+    // Re-layout only when the tutorial starts or ends: doing it per step would
+    // make the board jump every time the instructions change length.
+    const want = !!game.tutorial && !game.tutorial.done
+    if (want !== reserved) {
+      reserved = want
+      wrap.classList.toggle('tut', want)
+      resize()
+    }
   }
 
   const resize = (): void => {
-    board.layout(game, wrap.clientWidth, wrap.clientHeight)
+    // Fixed reserve, matching `#board-wrap.tut`'s padding: measuring the banner
+    // here races the first layout pass, where the column has no width yet and the
+    // text wraps into a comically tall block.
+    board.layout(game, wrap.clientWidth, wrap.clientHeight - (reserved ? TUTORIAL_RESERVE : 0))
   }
 
   game.onChange = () => {
@@ -54,8 +78,16 @@ function boot(): void {
 
   initOverlays({
     onStart: seed => {
+      game.tutorial = undefined
       game.newRun(seed)
       game.mode = 'play'
+      resize()
+      renderOverlay(game)
+      refresh()
+      audio.resume()
+    },
+    onTutorial: () => {
+      startTutorial(game)
       resize()
       renderOverlay(game)
       refresh()

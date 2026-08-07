@@ -4,6 +4,7 @@ import { primaryDamageType, type SpellInst } from '../core/spell'
 import { COMPONENTS, COMPONENT_IDS, CREATURE_TAG_NAMES, DAMAGE_COLORS, DAMAGE_NAMES, DAMAGE_TYPES, EQUIP_SLOTS, SLOT_NAMES, TAG_COLORS, TAG_NAMES } from '../core/types'
 import { makeBuff, visibleBuffs } from '../core/buffs'
 import { getConsumable, getUnitDef } from '../core/registry'
+import { TUTORIAL_STEP_COUNT } from '../core/tutorial'
 import { clear, el, heading, spriteImg } from './dom'
 
 const ICON = 17
@@ -131,7 +132,14 @@ export function renderSidebar(g: Game, root: HTMLElement, onSpellClick: (i: numb
 
   root.append(line(`第 ${g.run.realmIndex} 领域 · 第 ${g.run.turn} 回合`))
   const enemies = g.enemies.length
-  root.append(line(enemies ? `剩余敌人：${enemies}` : '领域已清空 —— 前往传送门', enemies ? '#8890a0' : '#7affa0'))
+  // During the tutorial the portal prompt would be a lie on most steps (an empty
+  // stage is normal there), so show tutorial progress in that slot instead.
+  const tut = g.tutorial
+  if (tut && !tut.done) {
+    root.append(line(`教学 ${tut.step + 1}/${TUTORIAL_STEP_COUNT}：${tut.current?.title ?? ''}`, '#ffd84a'))
+  } else {
+    root.append(line(enemies ? `剩余敌人：${enemies}` : '领域已清空 —— 前往传送门', enemies ? '#8890a0' : '#7affa0'))
+  }
 
   const spellHead = heading(root, '法术（S）')
   spellHead.style.cursor = 'pointer'
@@ -327,6 +335,47 @@ export function renderReport(g: Game, root: HTMLElement): void {
     d.style.color = l.color
     root.append(d)
   }
+}
+
+/**
+ * Tutorial banner: the current step's instructions, pinned across the bottom.
+ * Empty (and hidden) outside the tutorial.
+ */
+export function renderTutorialBanner(g: Game, root: HTMLElement): void {
+  clear(root)
+  const t = g.tutorial
+  const step = t?.current
+  if (!t || !step || t.done) { root.classList.remove('show'); return }
+  root.classList.add('show')
+
+  const head = el('div', 'tut-head')
+  head.append(el('span', 'tut-step', `教学 ${t.step + 1}/${TUTORIAL_STEP_COUNT}`))
+  head.append(el('span', 'tut-title', step.title))
+  root.append(head)
+  for (const p of step.body) {
+    // `**bold**` marks the one phrase per paragraph that must not be skimmed.
+    const d = el('div', 'tut-body')
+    for (const [i, chunk] of p.split('**').entries()) {
+      if (!chunk) continue
+      d.append(i % 2 ? el('b', undefined, chunk) : document.createTextNode(chunk))
+    }
+    root.append(d)
+  }
+  root.append(el('div', 'tut-hint', HINTS[step.goal.kind] ?? ''))
+}
+
+/** One-line reminder of the key or click the current goal needs. */
+const HINTS: Record<string, string> = {
+  move: '方向键 / WASD / 点击相邻格子',
+  examine: '把鼠标移到高亮格子上',
+  cast: '按法术数字键，再点击目标',
+  wait: '空格',
+  panel: '按提示的按键',
+  learn: '在角色面板中点击该法术',
+  upgrade: '在法术卡片下点击该升级',
+  craft: '在锻造界面点击该神器',
+  consumable: '按 I 打开物品后点击使用',
+  portal: '走到传送门上按回车',
 }
 
 export { line as uiLine, TAG_COLORS }

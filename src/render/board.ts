@@ -39,7 +39,9 @@ export class BoardRenderer {
   layout(g: Game, availW: number, availH: number): void {
     const w = g.level.w, h = g.level.h
     const pad = 14
-    const tile = Math.max(14, Math.floor(Math.min((availW - pad * 2) / w, (availH - pad * 2) / h)))
+    // 10px is the floor where sprites still read; below the board would just
+    // overflow its column and slide under the side panels.
+    const tile = Math.max(10, Math.floor(Math.min((availW - pad * 2) / w, (availH - pad * 2) / h)))
     this.tile = tile
     const cssW = w * tile + pad * 2
     const cssH = h * tile + pad * 2
@@ -123,6 +125,19 @@ export class BoardRenderer {
       ctx.textAlign = 'center'
       ctx.fillText(String(p.realm.index), p.x * T + T / 2, p.y * T + T * 0.95)
       ctx.textAlign = 'left'
+    }
+
+    // tutorial: pulse the tiles the current step points at
+    const tut = g.tutorial
+    if (tut && !tut.done) {
+      const pulse = 0.45 + Math.sin(performance.now() / 240) * 0.3
+      ctx.strokeStyle = '#ffd84a'
+      ctx.lineWidth = 2
+      ctx.globalAlpha = pulse
+      for (const p of tut.highlight) {
+        ctx.strokeRect(p.x * T + 1, p.y * T + 1, T - 2, T - 2)
+      }
+      ctx.globalAlpha = 1
     }
 
     // aiming overlay under units

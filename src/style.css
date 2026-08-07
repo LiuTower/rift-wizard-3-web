@@ -43,8 +43,10 @@ html, body {
   white-space: pre-wrap;
 }
 
-#left { width: var(--panel-w); flex: 0 0 var(--panel-w); }
-#right { width: var(--panel-w); flex: 0 0 var(--panel-w); }
+/* Panels shrink before the board does: two fixed 22.5rem columns squeeze the
+   board to nothing under ~1100px, which is unplayable. */
+#left { width: var(--panel-w); flex: 0 1 var(--panel-w); min-width: 12rem; }
+#right { width: var(--panel-w); flex: 0 1 var(--panel-w); min-width: 12rem; }
 
 #board-wrap {
   flex: 1 1 auto;
@@ -52,7 +54,16 @@ html, body {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  /* anchor for the tutorial banner, which must stay off the side panels */
+  position: relative;
+  /* below ~820px even the smallest tiles overflow; scroll rather than bleed
+     under the panels */
+  overflow: auto;
 }
+/* Tutorial mode reserves room under the board so the banner never covers it.
+   Toggled once when the tutorial starts or ends, so the board does not resize
+   on every step. */
+#board-wrap.tut { padding-bottom: 10rem; }
 
 #board { display: block; image-rendering: auto; }
 
@@ -189,3 +200,43 @@ html, body {
 .menu-item.sel::after { content: ' \25C0'; color: var(--sp); }
 
 .center-box { max-width: 46rem; margin: 8vh auto; }
+
+/* Tutorial banner: pinned bottom-centre, above the board but never over the
+   side panels, so instructions and game state are readable at the same time. */
+#tutorial {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 0.5rem;
+  transform: translateX(-50%);
+  width: calc(100% - 1rem);
+  max-width: 58rem;
+  padding: 0.6rem 0.9rem;
+  background: #0d0d13f2;
+  border: 1px solid var(--sp);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #000, 0 6px 20px #000a;
+  /* Below `#overlay` (20) and click-through: the banner sits over the board, but
+   * the character sheet and forge open on top of it, and their cards must stay
+   * clickable even where the banner's rectangle overlaps them. */
+  z-index: 15;
+  pointer-events: none;
+  line-height: 1.5;
+  /* A narrow board column would otherwise wrap the text into a column of single
+     characters hundreds of pixels tall. */
+  max-height: 40vh;
+  min-width: 16rem;
+}
+#tutorial.show { display: block; }
+#tutorial .tut-head { margin-bottom: 0.3rem; }
+#tutorial .tut-step {
+  color: #07070a;
+  background: var(--sp);
+  padding: 0 0.4em;
+  border-radius: 3px;
+  font-weight: bold;
+}
+#tutorial .tut-title { color: var(--sp); margin-left: 0.6em; font-weight: bold; }
+#tutorial .tut-body { color: var(--ink); }
+#tutorial .tut-body b { color: var(--ink-bright); }
+#tutorial .tut-hint { color: #8890a0; margin-top: 0.3rem; }

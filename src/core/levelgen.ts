@@ -39,9 +39,16 @@ function carve(rng: RNG, lvl: Level, realm: RealmDef): void {
   blob(wallTarget, Tile.Wall)
   blob(chasmTarget, Tile.Chasm)
 
-  // keep the largest walkable region, wall off islands
+  connect(lvl)
+  for (let i = 0; i < w * h; i++) lvl.variant[i] = rng.int(8)
+  lvl.biome = realm.biome.id
+}
+
+/** Flood-fill every walkable pocket, largest first. */
+function floorRegions(lvl: Level): number[][] {
+  const { w, h } = lvl
   const seen = new Uint8Array(w * h)
-  let best: number[] = []
+  const out: number[][] = []
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const start = y * w + x
@@ -55,23 +62,69 @@ function carve(rng: RNG, lvl: Level, realm: RealmDef): void {
         const cx = cur % w, cy = (cur - cx) / w
         for (const [dx, dy] of DIRS8) {
           const nx = cx + dx, ny = cy + dy
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+          if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue
           const ni = ny * w + nx
           if (seen[ni] || lvl.tiles[ni] !== Tile.Floor) continue
           seen[ni] = 1
           stack.push(ni)
         }
       }
-      if (region.length > best.length) best = region
+      out.push(region)
     }
   }
-  const keep = new Uint8Array(w * h)
-  for (const i of best) keep[i] = 1
-  for (let i = 0; i < w * h; i++) {
-    if (lvl.tiles[i] === Tile.Floor && !keep[i]) lvl.tiles[i] = Tile.Wall
+  return out.sort((a, b) => b.length - a.length)
+}
+
+/**
+ * Dig from the nearest tile of `from` to the nearest tile of `to`, turning wall
+ * and chasm into floor. Steps diagonally because units move in eight
+ * directions, which also makes the corridor read as a natural crack.
+ * Returns the tiles it opened.
+ */
+function digCorridor(lvl: Level, from: readonly number[], to: readonly number[]): number[] {
+  const { w } = lvl
+  let bestA = from[0], bestB = to[0], bestD = Infinity
+  for (const a of from) {
+    const ax = a % w, ay = (a - ax) / w
+    for (const b of to) {
+      const bx = b % w, by = (b - bx) / w
+      const d = cheb(ax, ay, bx, by)
+      if (d < bestD) { bestD = d; bestA = a; bestB = b }
+    }
   }
-  for (let i = 0; i < w * h; i++) lvl.variant[i] = rng.int(8)
-  lvl.biome = realm.biome.id
+  const carved: number[] = []
+  let x = bestA % w, y = (bestA - x) / w
+  const tx = bestB % w, ty = (bestB - tx) / w
+  while (x !== tx || y !== ty) {
+    x += Math.sign(tx - x)
+    y += Math.sign(ty - y)
+    const i = y * w + x
+    if (lvl.tiles[i] !== Tile.Floor) { lvl.tiles[i] = Tile.Floor; carved.push(i) }
+  }
+  return carved
+}
+
+/**
+ * Random-walk carving leaves isolated pockets, and a chasm can cut the cave in
+ * half for anything that walks. Walling those pockets off would be simpler, but
+ * it shrinks the playable map to whatever the biggest pocket happens to be —
+ * measured as low as a third of the level, which reads as a broken map. So dig a
+ * corridor from each pocket to the main cave instead; specks too small to be
+ * worth a corridor are filled in.
+ */
+function connect(lvl: Level): void {
+  const SPECK = 5
+  const regs = floorRegions(lvl)
+  if (!regs.length) return
+  const trunk = regs[0]
+  for (const reg of regs.slice(1)) {
+    if (reg.length < SPECK) {
+      for (const i of reg) lvl.tiles[i] = Tile.Wall
+      continue
+    }
+    for (const i of digCorridor(lvl, trunk, reg)) trunk.push(i)
+    for (const i of reg) trunk.push(i)
+  }
 }
 
 function pickSpread(rng: RNG, spots: { x: number; y: number }[], count: number, minGap: number): { x: number; y: number }[] {
@@ -169,8 +222,9 @@ export function buildLevel(g: Game, realm: RealmDef): Level {
     }
   }
 
-  // loot: components always, plus the realm reward
-  const lootSpots = pickSpread(rng, floors.filter(p => cheb(p.x, p.y, start.x, start.y) >= 3), 10, 3)
+  // Loot: components always, plus the realm reward. `walkable`, not `floors` —
+  // a reward the wizard can see but never step on is pure frustration.
+  const lootSpots = pickSpread(rng, walkable.filter(p => cheb(p.x, p.y, start.x, start.y) >= 3), 10, 3)
   let li = 0
   const componentCount = realm.reward === 'components' ? rng.range(5, 7) : rng.range(3, 4)
   for (let i = 0; i < componentCount && li < lootSpots.length; i++) {
