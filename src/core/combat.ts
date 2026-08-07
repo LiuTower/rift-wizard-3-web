@@ -82,7 +82,7 @@ export function killUnit(g: Game, target: Unit, killer?: Unit): void {
   for (const b of target.buffs.slice()) b.onDeath?.(target, g)
   if (killer?.alive) for (const b of killer.buffs.slice()) b.onKill?.(killer, g, target)
 
-  g.fx.death(target.x, target.y, target.color)
+  g.fx.death(target.x, target.y, target.color, target.sprite)
   g.emit('death', { unit: target, killer })
 
   if (target.isPlayer) {

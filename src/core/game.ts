@@ -540,14 +540,16 @@ export class Game {
     if (!this.tutorialAllows({ kind: 'move', at: { x: nx, y: ny } })) return false
     this.startReport('', '#c8c8d8')
     this.breakChannel()
+    const px = this.player.x, py = this.player.y
     if (other) {
-      // swap with your own minion
-      const px = this.player.x, py = this.player.y
+      // swap with your own minion — both bodies slide, or the minion teleports
       this.level.placeUnit(other, px, py)
       this.level.placeUnit(this.player, nx, ny)
+      this.fx.move(other.uid, nx, ny, px, py)
     } else {
       this.level.placeUnit(this.player, nx, ny)
     }
+    this.fx.move(this.player.uid, px, py, nx, ny)
     this.level.invalidateLOS()
     for (const b of this.player.buffs.slice()) b.onMove?.(this.player, this, this.player.x - dx, this.player.y - dy)
     this.checkTileEffects(this.player)
@@ -609,11 +611,15 @@ export class Game {
     return true
   }
 
+  /**
+   * Open a fresh turn report. Every player action funnels through here, which is
+   * also where the animation timeline gets rebased — see `FxQueue.catchUp`.
+   */
   private startReport(headline: string, color: string): void {
     this.report = emptyReport()
     this.report.headline = headline
     this.report.headlineColor = color
-    this.fx.prune()
+    this.fx.catchUp()
   }
 
   /** Terrain and pickups after any move or teleport. */

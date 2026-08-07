@@ -254,12 +254,15 @@ export function moveToward(g: Game, u: Unit, target: Unit): boolean {
   if (best) {
     u.facing = best.x < u.x ? -1 : 1
     g.level.placeUnit(u, best.x, best.y)
+    g.fx.move(u.uid, fx, fy, best.x, best.y)
   } else if (swap) {
     const other = swap.unit
     const ox = other.x, oy = other.y
     u.facing = ox < u.x ? -1 : 1
     g.level.placeUnit(other, fx, fy)
     g.level.placeUnit(u, ox, oy)
+    g.fx.move(u.uid, fx, fy, ox, oy)
+    g.fx.move(other.uid, ox, oy, fx, fy)
     g.checkTileEffects(other)
   } else {
     return false

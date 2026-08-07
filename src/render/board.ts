@@ -143,11 +143,14 @@ export class BoardRenderer {
     // aiming overlay under units
     if (g.mode === 'aim' && g.aim) this.drawAim(g, ctx)
 
-    // units: big ones last so they overlap correctly
+    // units: big ones last so they overlap correctly. Walking creatures are drawn
+    // at their animated position, which lags the logical tile until their beat
+    // plays — that is what keeps a turn reading in the order it happened.
+    const moves = g.fx.moveOffsets()
     const units = lvl.units.slice().sort((a, b) => (a.big ? 1 : 0) - (b.big ? 1 : 0))
     for (const u of units) {
       if (!u.alive) continue
-      this.drawUnit(g, ctx, u)
+      this.drawUnit(g, ctx, u, moves.get(u.uid))
     }
 
     // effects
@@ -167,11 +170,14 @@ export class BoardRenderer {
     }
   }
 
-  private drawUnit(g: Game, ctx: CanvasRenderingContext2D, u: Unit): void {
+  private drawUnit(g: Game, ctx: CanvasRenderingContext2D, u: Unit, at?: { x: number; y: number }): void {
     const T = this.tile
     const size = u.big ? T * 2 : T
-    const px = u.big ? u.x * T - T * 0.5 : u.x * T
-    const py = u.big ? u.y * T - T * 0.5 : u.y * T
+    // `at` is the animated position mid-step; everything below draws from these.
+    const ux = at?.x ?? u.x
+    const uy = at?.y ?? u.y
+    const px = u.big ? ux * T - T * 0.5 : ux * T
+    const py = u.big ? uy * T - T * 0.5 : uy * T
 
     let tint: string | undefined
     let tintAmount = 0.5
@@ -194,7 +200,7 @@ export class BoardRenderer {
     if (u.team === 'player' && !u.isPlayer) {
       ctx.fillStyle = '#7affa0'
       ctx.beginPath()
-      ctx.arc(u.x * T + 3.5, u.y * T + 3.5, 2, 0, Math.PI * 2)
+      ctx.arc(ux * T + 3.5, uy * T + 3.5, 2, 0, Math.PI * 2)
       ctx.fill()
     }
 
@@ -203,7 +209,7 @@ export class BoardRenderer {
       ctx.lineWidth = 1.6
       const r = T * 0.48
       ctx.beginPath()
-      ctx.arc(u.x * T + T / 2, u.y * T + T / 2, r, 0, Math.PI * 2)
+      ctx.arc(ux * T + T / 2, uy * T + T / 2, r, 0, Math.PI * 2)
       ctx.stroke()
     }
 
@@ -211,7 +217,7 @@ export class BoardRenderer {
       ctx.strokeStyle = '#c8d8ff'
       ctx.lineWidth = 1.4
       ctx.beginPath()
-      ctx.arc(u.x * T + T / 2, u.y * T + T / 2, T * 0.44, 0, Math.PI * 2)
+      ctx.arc(ux * T + T / 2, uy * T + T / 2, T * 0.44, 0, Math.PI * 2)
       ctx.stroke()
     }
 
@@ -230,7 +236,7 @@ export class BoardRenderer {
     if (u.isPlayer) {
       ctx.strokeStyle = 'rgba(255,255,255,0.35)'
       ctx.lineWidth = 1
-      ctx.strokeRect(u.x * T + 0.5, u.y * T + 0.5, T - 1, T - 1)
+      ctx.strokeRect(ux * T + 0.5, uy * T + 0.5, T - 1, T - 1)
     }
   }
 
@@ -394,6 +400,12 @@ export class BoardRenderer {
         break
       }
       case 'death': {
+        // The unit left the level the moment logic resolved; fade its body here
+        // so it does not blink out before this beat plays.
+        if (f.sprite) {
+          ctx.globalAlpha = (1 - t) * 0.8
+          drawSprite(ctx, f.sprite, this.sprite(f.sprite), f.x * T, f.y * T, T, { tint: f.color, tintAmount: 0.4 })
+        }
         ctx.globalAlpha = 1 - t
         ctx.fillStyle = f.color
         for (let i = 0; i < 6; i++) {
