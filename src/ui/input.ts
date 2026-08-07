@@ -1,6 +1,6 @@
 import type { Game } from '../core/game'
 import type { BoardRenderer } from '../render/board'
-import { renderOverlay } from './overlays'
+import { renderOverlay, MENU_MODES } from './overlays'
 import { hideTooltip } from './panels'
 import { audio } from '../audio'
 import { cheb } from '../core/geom'
@@ -26,13 +26,69 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
     else audio.play('ui_error')
   }
 
+  // Menu overlays (title / death / victory / pause) are plain `.menu-item` lists.
+  // Selection is kept in the DOM and activation just clicks the item, so the click
+  // handlers in overlays.ts stay the single source of truth for what each entry does.
+  const menuItems = () => Array.from(document.querySelectorAll<HTMLElement>('#overlay .menu-item'))
+
+  const moveSel = (delta: number): boolean => {
+    const items = menuItems()
+    if (!items.length) return false
+    const cur = items.findIndex(i => i.classList.contains('sel'))
+    const next = cur < 0 ? (delta > 0 ? 0 : items.length - 1) : (cur + delta + items.length) % items.length
+    for (const i of items) i.classList.remove('sel')
+    items[next].classList.add('sel')
+    items[next].scrollIntoView({ block: 'nearest' })
+    audio.play('ui_click')
+    return true
+  }
+
+  const activateSel = (): boolean => {
+    const items = menuItems()
+    const target = items.find(i => i.classList.contains('sel')) ?? items[0]
+    if (!target) return false
+    audio.play('ui_open')
+    target.click()
+    return true
+  }
+
   window.addEventListener('keydown', ev => {
     audio.resume()
     if (ev.key === 'Control') { g.fx.skip(); return }
 
-    // full-screen panels: only closing keys and panel switches
+    const upper = ev.key.toUpperCase()
+
+    // menu overlays: full keyboard control, no mouse required
+    if (MENU_MODES[g.mode]) {
+      const mv = MOVE_KEYS[ev.code] ?? MOVE_KEYS[ev.key]
+      if (mv && mv[1] !== 0) { moveSel(mv[1]); ev.preventDefault(); return }
+      if (ev.key === 'Tab') { moveSel(ev.shiftKey ? -1 : 1); ev.preventDefault(); return }
+      if (ev.key === 'Enter' || ev.key === ' ') { activateSel(); ev.preventDefault(); return }
+      const hot = menuItems().find(i => i.dataset.hotkey === upper)
+      if (hot) { audio.play('ui_open'); hot.click(); ev.preventDefault(); return }
+      // the pause menu still answers the in-game panel keys; on title/end screens
+      // there is no run to inspect, so they stay inert.
+      if (g.mode === 'menu' && PANEL_KEYS[upper]) {
+        g.mode = PANEL_KEYS[upper] as typeof g.mode
+        audio.play('ui_open')
+        renderOverlay(g)
+        refresh()
+        ev.preventDefault()
+        return
+      }
+      if (upper === 'M') { audio.setMuted(!audio.muted); renderOverlay(g); ev.preventDefault(); return }
+      // the pause menu can also just be dismissed; title/end screens have nowhere to go
+      if (ev.key === 'Escape' && g.mode === 'menu') {
+        g.mode = 'play'
+        renderOverlay(g)
+        refresh()
+        ev.preventDefault()
+      }
+      return
+    }
+
+    // other full-screen panels: closing keys and panel switches
     if (g.mode !== 'play' && g.mode !== 'aim') {
-      if (g.mode === 'title' || g.mode === 'dead' || g.mode === 'win') return
       if (ev.key === 'Escape') {
         g.mode = 'play'
         renderOverlay(g)
@@ -40,7 +96,6 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
         ev.preventDefault()
         return
       }
-      const upper = ev.key.toUpperCase()
       if (PANEL_KEYS[upper]) {
         const next = PANEL_KEYS[upper]
         g.mode = g.mode === next ? 'play' : (next as typeof g.mode)
@@ -121,7 +176,6 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
       return
     }
 
-    const upper = ev.key.toUpperCase()
     if (PANEL_KEYS[upper]) {
       g.mode = PANEL_KEYS[upper] as typeof g.mode
       audio.play('ui_open')
@@ -132,6 +186,16 @@ export function bindInput(g: Game, board: BoardRenderer, refresh: () => void): v
     }
     if (upper === 'R') { act(g.rerollPortals()); return }
     if (upper === 'M') { audio.setMuted(!audio.muted); refresh(); return }
+  })
+
+  // Keep the keyboard caret under the mouse: hovering an entry then pressing Enter
+  // must fire that entry, not whatever the arrow keys last landed on.
+  document.getElementById('overlay')?.addEventListener('mouseover', ev => {
+    if (!MENU_MODES[g.mode]) return
+    const item = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.menu-item')
+    if (!item || item.classList.contains('sel')) return
+    for (const i of document.querySelectorAll('#overlay .menu-item')) i.classList.remove('sel')
+    item.classList.add('sel')
   })
 
   canvas.addEventListener('mousemove', ev => {

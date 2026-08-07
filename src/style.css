@@ -184,5 +184,8 @@ html, body {
 .title-art { color: var(--sp); white-space: pre; line-height: 1.05; }
 .menu-item { cursor: pointer; }
 .menu-item:hover { color: var(--ink-bright); }
+/* keyboard selection: the caret has to read at a glance without a mouse */
+.menu-item.sel { color: var(--ink-bright); background: #1a1a24; outline: 1px solid #3a3a46; }
+.menu-item.sel::after { content: ' \25C0'; color: var(--sp); }
 
 .center-box { max-width: 46rem; margin: 8vh auto; }

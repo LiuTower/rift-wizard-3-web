@@ -280,6 +280,7 @@ function renderHelp(g: Game, root: HTMLElement): void {
     ['检视', '把鼠标移到任意格子上：右栏会显示生物、抗性与技能'],
     ['跳过动画', '按住或轻按 Ctrl'],
     ['静音', 'M'],
+    ['菜单 / 标题 / 结算界面', '↑↓ 或 W S 选择，回车 或 空格 确认，Tab 循环 —— 全程无需鼠标。结算界面按 R 直接重开一局'],
   ]
   body.append(el('h2', undefined, '操作'))
   for (const [k, v] of rows) {
@@ -343,13 +344,15 @@ function renderTitle(g: Game, root: HTMLElement, onStart: (seed?: string) => voi
   box.append(line('硬核回合制网格 Roguelike。二十个领域，一个巫师，绝无仁慈。', '#8890a0'))
   box.append(el('div', undefined, ' '))
 
-  const newRun = el('div', 'menu-item', '> 开始新的一局')
+  const newRun = el('div', 'menu-item', '> 开始新的一局    [N]')
   newRun.style.color = '#ffd84a'
+  newRun.dataset.hotkey = 'N'
   newRun.onclick = () => onStart()
   box.append(newRun)
 
   if (canContinue) {
-    const cont = el('div', 'menu-item', '> 继续上次进度')
+    const cont = el('div', 'menu-item', '> 继续上次进度    [C]')
+    cont.dataset.hotkey = 'C'
     cont.onclick = () => { if (!g.loadRun()) { g.log('存档无法读取。', '#ff8080'); onStart() } }
     box.append(cont)
   }
@@ -361,11 +364,18 @@ function renderTitle(g: Game, root: HTMLElement, onStart: (seed?: string) => voi
   input.style.cssText = 'background:#07070a;border:1px solid #3a3a46;color:#c8c8d8;padding:2px 6px;border-radius:4px;font:inherit'
   const go = el('span', 'menu-item', '  > 用该种子开始')
   go.onclick = () => onStart(input.value || undefined)
+  // While typing a seed the field owns the keyboard: Enter submits, Escape hands
+  // focus back to the menu. Both stop here so the menu handler never double-fires.
+  input.onkeydown = ev => {
+    ev.stopPropagation()
+    if (ev.key === 'Enter') { onStart(input.value || undefined); ev.preventDefault() }
+    else if (ev.key === 'Escape') { input.blur(); ev.preventDefault() }
+  }
   seedRow.append(input, go)
   box.append(seedRow)
 
   box.append(el('div', undefined, ' '))
-  box.append(line('游戏中按 H 查看完整规则。把鼠标移到任何东西上都能检视。', '#5a5a66'))
+  box.append(line('全键盘可用：↑↓ 选择 · 回车 确认 · 游戏中按 H 查看完整规则。把鼠标移到任何东西上都能检视。', '#5a5a66'))
   const counts = contentCounts()
   box.append(line(`${counts.spells} 个法术 · ${counts.units} 种生物 · ${counts.artifacts} 件神器`, '#5a5a66'))
   root.append(box)
@@ -406,10 +416,15 @@ function renderEnd(g: Game, root: HTMLElement, won: boolean, onStart: (seed?: st
   }
 
   box.append(el('div', undefined, ' '))
-  const again = el('div', 'menu-item', '> 再来一局')
+  const again = el('div', 'menu-item', '> 再来一局    [回车 / R]')
   again.style.color = '#ffd84a'
+  again.dataset.hotkey = 'R'
   again.onclick = () => onStart()
   box.append(again)
+  const back = el('div', 'menu-item', '> 返回标题界面    [T]')
+  back.dataset.hotkey = 'T'
+  back.onclick = () => { g.mode = 'title'; renderOverlay(g) }
+  box.append(back)
   root.append(box)
 }
 
@@ -421,6 +436,12 @@ export interface OverlayHooks {
 let hooks: OverlayHooks = { onStart: () => {}, canContinue: () => false }
 
 export function initOverlays(h: OverlayHooks): void { hooks = h }
+
+/**
+ * Modes whose overlay is a plain vertical list of `.menu-item`s, so the input
+ * layer can drive them with the arrow keys instead of demanding a mouse.
+ */
+export const MENU_MODES: Record<string, true> = { title: true, dead: true, win: true, menu: true }
 
 /** Draw whichever full-screen panel the current mode calls for. */
 export function renderOverlay(g: Game): void {
@@ -442,6 +463,9 @@ export function renderOverlay(g: Game): void {
     case 'dead': renderEnd(g, root, false, hooks.onStart); break
     case 'win': renderEnd(g, root, true, hooks.onStart); break
   }
+  // Pre-select the first entry so Enter always has an obvious meaning. Selection
+  // lives in the DOM, so a re-render naturally resets it to the top item.
+  if (MENU_MODES[g.mode]) root.querySelector('.menu-item')?.classList.add('sel')
 }
 
 function renderInventory(g: Game, root: HTMLElement): void {
