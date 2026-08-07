@@ -1,7 +1,7 @@
 {
   "name": "rift-wizard-3-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Rift Wizard 3 — web recreation. Turn-based tactical roguelike wizard simulator.",
   "scripts": {
