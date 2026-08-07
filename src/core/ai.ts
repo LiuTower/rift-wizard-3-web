@@ -219,55 +219,34 @@ export function takeMonsterTurn(g: Game, u: Unit): TurnAction {
 /**
  * Step one tile along the flow field toward `target`. Returns true if it moved.
  *
- * When every downhill tile is taken by an ally, the mover swaps with one instead
- * of standing still: a pack wedged in a corridor would otherwise deadlock and
- * the realm could never be cleared.
+ * A blocked monster waits. It deliberately does NOT shove past an ally: trading
+ * places moves the pair a net zero tiles toward the wizard, and since each of
+ * them then sees the other sitting on the better tile, they trade back forever —
+ * a crowd that looks busy, costs the player turns, and never arrives. A corridor
+ * that only fits one attacker at a time is terrain the player has earned.
  */
 export function moveToward(g: Game, u: Unit, target: Unit): boolean {
   const field = g.flowTo(target, u.flying)
   const here = field[u.y * g.level.w + u.x]
   let best: { x: number; y: number; score: number } | undefined
-  let swap: { unit: Unit; score: number } | undefined
   const dirs = g.rng.shuffle(DIRS8.slice())
   for (const [dx, dy] of dirs) {
     const nx = u.x + dx, ny = u.y + dy
-    if (!g.level.passable(nx, ny, u.flying)) continue
+    if (!g.level.vacant(nx, ny, u.flying)) continue
     const d = field[ny * g.level.w + nx]
     if (d >= here) continue
-    const occupant = g.level.unitAt(nx, ny)
-    if (occupant) {
-      // Shuffle past allies only. Never displace the wizard: the player would
-      // be shoved back and forth by its own minions and never advance.
-      if (occupant.team !== u.team || occupant === target || occupant.isPlayer) continue
-      if (!g.level.passable(u.x, u.y, occupant.flying)) continue
-      if (!swap || d < swap.score) swap = { unit: occupant, score: d }
-      continue
-    }
     // prefer open lanes: crowded neighbours are a worse step at equal distance
     let crowd = 0
     for (const [ox, oy] of DIRS8) if (g.level.unitAt(nx + ox, ny + oy)) crowd++
     const score = d * 4 + crowd
     if (!best || score < best.score) best = { x: nx, y: ny, score }
   }
+  if (!best) return false
 
   const fx = u.x, fy = u.y
-  if (best) {
-    u.facing = best.x < u.x ? -1 : 1
-    g.level.placeUnit(u, best.x, best.y)
-    g.fx.move(u.uid, fx, fy, best.x, best.y)
-  } else if (swap) {
-    const other = swap.unit
-    const ox = other.x, oy = other.y
-    u.facing = ox < u.x ? -1 : 1
-    g.level.placeUnit(other, fx, fy)
-    g.level.placeUnit(u, ox, oy)
-    g.fx.move(u.uid, fx, fy, ox, oy)
-    g.fx.move(other.uid, ox, oy, fx, fy)
-    g.checkTileEffects(other)
-  } else {
-    return false
-  }
-
+  u.facing = best.x < u.x ? -1 : 1
+  g.level.placeUnit(u, best.x, best.y)
+  g.fx.move(u.uid, fx, fy, best.x, best.y)
   for (const b of u.buffs.slice()) b.onMove?.(u, g, fx, fy)
   g.checkTileEffects(u)
   return true
